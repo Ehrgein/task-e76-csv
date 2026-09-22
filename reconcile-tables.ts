@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 // Run: node --experimental-strip-types reconcile-tables.ts
 
@@ -106,10 +106,7 @@ function main() {
 
   const validOrders = orders.filter(isValid);
 
-  console.log(`rows in file: ${orders.length}`);
-  console.log(`valid orders: ${validOrders.length}`);
-
-  // Sum revenue per day and channel. Key looks like "2026-01-06|Direct".
+  // Sum revenue per day and channel.
   const ourTotals = new Map<string, number>();
 
   for (const order of validOrders) {
@@ -118,36 +115,15 @@ function main() {
     ourTotals.set(key, (ourTotals.get(key) ?? 0) + netRevenueUsd(order));
   }
 
-  // Read the finance export into the same shape.
-  const financeLines: string[] = readFileSync("finance_export.csv", "utf8")
-    .trim()
-    .split("\n")
-    .slice(1);
+  // One row per day and channel.
+  const csvRows = ["date,channel,revenue_usd"];
 
-  const financeTotals = new Map<string, number>();
-
-  for (const line of financeLines) {
-    const [date, channel, revenueUsd] = line.split(",");
-    financeTotals.set(`${date}|${channel}`, Number(revenueUsd));
+  for (const key of [...ourTotals.keys()].sort()) {
+    const [date, channel] = key.split("|");
+    csvRows.push(`${date},${channel},${ourTotals.get(key)!.toFixed(2)}`);
   }
 
-  // Compare every day/channel that appears on either side.
-  const keys = [...new Set([...ourTotals.keys(), ...financeTotals.keys()])].sort();
-  let matched = 0;
-
-  for (const key of keys) {
-    const ours = ourTotals.get(key) ?? 0;
-    const theirs = financeTotals.get(key) ?? 0;
-    const diff = ours - theirs;
-
-    if (Math.abs(diff) < 0.005) {
-      matched += 1;
-    } else {
-      console.log(`${key.padEnd(23)} ours ${ours.toFixed(2).padStart(9)}  finance ${theirs.toFixed(2).padStart(9)}  diff ${diff.toFixed(2).padStart(9)}`);
-    }
-  }
-
-  console.log(`\n${keys.length} day/channel cells, ${matched} match, ${keys.length - matched} do not`);
+  writeFileSync("reconciled_daily_revenue.csv", csvRows.join("\n") + "\n");
 }
 
 main();
